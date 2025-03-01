@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
 import argparse
+import configparser
 import datetime
 import json
 import logging
 import os
 import subprocess
+import requests
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urljoin
 
 
 class Colors:
@@ -66,6 +69,17 @@ def main() -> None:
         action="store_true",
         help="print the git short hash and commit time",
     )
+    parser.add_argument(
+        "--no-webdav",
+        action="store_true",
+        help="disable automatic upload to WebDAV server",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("webdav.ini"),
+        help="specify the WebDAV configuration file path",
+    )
 
     args = parser.parse_args()
 
@@ -89,7 +103,12 @@ def main() -> None:
 
     data: dict = read_json()
     html: str = convert_json_to_html(data)
-    write_html(html, args.output)
+    output_file = write_html(html, args.output)
+    
+    # 默认上传到WebDAV，除非用户明确指定--no-webdav参数
+    if not args.no_webdav:
+        upload_to_webdav(output_file, args.config)
+    
     logging.info("Done!")
 
 
@@ -292,19 +311,107 @@ def convert_bookmarks_to_html(bookmarks: dict) -> str:
     return html_str
 
 
-def write_html(html_content: str, output: Path = None) -> None:
+def write_html(html_content: str, output: Path = None) -> Path:
     logging.info("Writing HTML...")
 
     if output is not None:
         output_file: Path = output
     else:
         current_date: str = datetime.now().strftime("%Y_%m_%d")
-        output_file: Path = Path("arc_bookmarks_" + current_date).with_suffix(".html")
+        output_file: Path = Path("arc_bookmarks").with_suffix(".html")
 
     with output_file.open("w", encoding="utf-8") as f:
         f.write(html_content)
 
     logging.debug(f"HTML written to {output_file}.")
+    
+    return output_file
+
+
+def upload_to_webdav(file_path: Path, config_path: Path) -> None:
+    logging.info("Uploading to WebDAV...")
+    
+    if not file_path.exists():
+        logging.error(f"File {file_path} does not exist.")
+        return
+    
+    if not config_path.exists():
+        logging.error(f"WebDAV configuration file {config_path} does not exist.")
+        return
+    
+    # Read WebDAV configuration
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    
+    if not config.has_section("webdav"):
+        logging.error("WebDAV configuration section not found in the config file.")
+        return
+    
+    webdav_enabled = config.getboolean("webdav", "enabled", fallback=False)
+    if not webdav_enabled:
+        logging.info("WebDAV upload is disabled in the configuration file.")
+        return
+    
+    webdav_url = config.get("webdav", "url", fallback="")
+    webdav_username = config.get("webdav", "username", fallback="")
+    webdav_password = config.get("webdav", "password", fallback="")
+    webdav_directory = config.get("webdav", "directory", fallback="")
+    
+    if not webdav_url:
+        logging.error("WebDAV URL is not specified in the configuration file.")
+        return
+    
+    # Ensure the WebDAV URL ends with a slash
+    if not webdav_url.endswith("/"):
+        webdav_url += "/"
+    
+    # Construct the target URL
+    if webdav_directory:
+        # Ensure the directory doesn't start with a slash but ends with one
+        webdav_directory = webdav_directory.strip("/") + "/"
+        target_url = urljoin(webdav_url, webdav_directory + file_path.name)
+    else:
+        target_url = urljoin(webdav_url, file_path.name)
+    
+    # Read the file content
+    with file_path.open("rb") as f:
+        file_content = f.read()
+    
+    # Upload the file to WebDAV server
+    try:
+        auth = None
+        if webdav_username and webdav_password:
+            auth = (webdav_username, webdav_password)
+        
+        response = requests.put(target_url, data=file_content, auth=auth, verify=True)
+        
+        if response.status_code in (200, 201, 204):
+            logging.info(f"File uploaded successfully to {target_url}")
+        else:
+            logging.error(f"Failed to upload file: HTTP {response.status_code} - {response.text}")
+    
+    except Exception as e:
+        logging.error(f"Error uploading file to WebDAV: {str(e)}")
+    
+    # Read the file content
+    with file_path.open("rb") as f:
+        file_content = f.read()
+    
+    # Upload the file to WebDAV server
+    try:
+        auth = None
+        if webdav_username and webdav_password:
+            auth = (webdav_username, webdav_password)
+        
+        response = requests.put(target_url, data=file_content, auth=auth, verify=True)
+        
+        if response.status_code in (200, 201, 204):
+            logging.info(f"File uploaded successfully to {target_url}")
+        else:
+            logging.error(f"Failed to upload file: HTTP {response.status_code} - {response.text}")
+    
+    except Exception as e:
+        logging.error(f"Error uploading file to WebDAV: {str(e)}")
 
 
 if __name__ == "__main__":
