@@ -52,9 +52,10 @@ python3 main.py
 2. 在 Floccus 中添加 WebDAV 同步账户：
    - 选择 "WebDAV"
    - 输入与 `webdav.ini` 中相同的服务器地址、用户名和密码
-   - 指定同步文件夹路径（与 `webdav.ini` 中的 `directory` 一致）
+   - 指定同步文件夹路径（如：其他收藏夹，不建议和浏览器自己的书签放一起）
 3. 设置同步选项（如同步频率等）
 4. 点击"立即同步"完成首次同步
+注意：坚果云webdav地址后面需带上文件夹名（ini中配置的directory），如https://dav.jianguoyun.com/dav/bookmark/，文件夹需要自己手动创建
 
 ## 故障排除
 
